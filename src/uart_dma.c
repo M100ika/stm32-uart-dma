@@ -1,16 +1,16 @@
 #include "uart_dma.h"
 
-#include <string.h>
-
 #include "board.h"
 #include "cpu.h"
 #include "regs.h"
 #include "ringbuf.h"
 #include "rx_tracker.h"
+#include "timer_us.h"
 
 #define UART_TX_PIN 2U
 #define UART_RX_PIN 3U
 #define UART_AF 7U          /* AF7 = USART1..3 */
+#define DE_PIN 8U           /* PA8 (D7 на разъёме Arduino) -> DE и /RE приёмопередатчика */
 #define DMA_CHANNEL 4UL     /* USART2_RX — Stream5/Ch4, USART2_TX — Stream6/Ch4 */
 
 #define RX_STREAM (&DMA1->S[5])
@@ -24,7 +24,7 @@
 
 #define RX_DMA_SIZE 64U     /* при 115200 бод полбуфера = 32 байта ~ 2,8 мс */
 #define RX_RB_SIZE 512U
-#define TX_RB_SIZE 1024U
+#define TX_RB_SIZE 512U
 
 static uint8_t s_rx_dma[RX_DMA_SIZE];
 static uint8_t s_rx_mem[RX_RB_SIZE];
@@ -32,6 +32,7 @@ static uint8_t s_tx_mem[TX_RB_SIZE];
 static ringbuf_t s_rx_rb;   /* писатель: прерывания приёма, читатель: основной цикл */
 static ringbuf_t s_tx_rb;   /* писатель: основной цикл, читатель: DMA (прерывание TX) */
 static rx_tracker_t s_rx_trk;
+static volatile uint32_t s_last_rx_us;
 
 /* Длина куска, который сейчас передаёт DMA; 0 — передатчик свободен.
  * Меняется только при запрещённых прерываниях или в прерывании TX. */
@@ -44,6 +45,22 @@ static volatile uint32_t s_tx_chunk;
 static volatile uart_stats_t s_stats;
 static volatile uint32_t s_err_dma_rx;
 static volatile uint32_t s_err_dma_tx;
+
+/* ---------------------------------------------------------- RS-485 DE */
+
+static void de_set(bool transmit)
+{
+    GPIOA->BSRR = transmit ? BIT(DE_PIN) : BIT(DE_PIN + 16U);
+}
+
+/* CR1 меняют обработчики с приоритетами 5 и 6 и основной цикл. Чтение-
+ * изменение-запись должно быть неделимым, иначе одно изменение затрёт другое. */
+static void usart_cr1_modify(uint32_t clear, uint32_t set)
+{
+    const uint32_t primask = irq_save();
+    USART2->CR1 = (USART2->CR1 & ~clear) | set;
+    irq_restore(primask);
+}
 
 /* ------------------------------------------------------------ приём */
 
@@ -78,6 +95,9 @@ static void rx_process(void)
         s_stats.rx_bytes += put;
         s_stats.rx_dropped += spans[i].len - put;
     }
+    if (n > 0U) {
+        s_last_rx_us = timer_us_now();
+    }
 }
 
 void DMA1_Stream5_IRQHandler(void)
@@ -99,6 +119,7 @@ void DMA1_Stream5_IRQHandler(void)
 void USART2_IRQHandler(void)
 {
     const uint32_t sr = USART2->SR;
+    const uint32_t cr1 = USART2->CR1;
 
     if (sr & (USART_SR_IDLE | USART_SR_ORE | USART_SR_FE | USART_SR_NF)) {
         /* Эти флаги сбрасываются последовательностью «чтение SR, затем DR».
@@ -112,6 +133,15 @@ void USART2_IRQHandler(void)
     if (sr & USART_SR_IDLE) {
         /* Пауза после пакета: забираем хвост, не дожидаясь HT/TC. */
         rx_process();
+    }
+    if ((cr1 & USART_CR1_TCIE) && (sr & USART_SR_TC)) {
+        /* Последний стоп-бит ушёл в линию: можно отпустить шину RS-485.
+         * Если опустить DE по окончании DMA, последний байт оборвётся —
+         * DMA заканчивает работу, когда байт только попал в DR. */
+        usart_cr1_modify(USART_CR1_TCIE, 0);
+        if (s_tx_chunk == 0U) {
+            de_set(false);
+        }
     }
 }
 
@@ -133,6 +163,10 @@ static void tx_kick_locked(void)
         n = 0xFFFFU; /* NDTR 16-битный */
     }
     s_tx_chunk = n;
+
+    /* Передача снова идёт — отменяем ожидание конца и занимаем линию. */
+    usart_cr1_modify(USART_CR1_TCIE, 0);
+    de_set(true);
 
     dma_stream_t *s = TX_STREAM;
     DMA1->HIFCR = DMA_ALL_FLAGS << DMA_FLAG_SHIFT_S6;
@@ -159,6 +193,11 @@ void DMA1_Stream6_IRQHandler(void)
         rb_skip(&s_tx_rb, s_tx_chunk);
         s_tx_chunk = 0;
         tx_kick_locked();
+        if (s_tx_chunk == 0U) {
+            /* Больше передавать нечего: ждём, пока байт уйдёт из сдвигового
+             * регистра, и тогда в USART2_IRQHandler отпускаем DE. */
+            usart_cr1_modify(0, USART_CR1_TCIE);
+        }
     }
 }
 
@@ -178,22 +217,19 @@ size_t uart_write(const void *data, size_t len)
     return put;
 }
 
-void uart_puts(const char *s)
-{
-    size_t len = strlen(s);
-    while (len > 0U) {
-        const size_t put = uart_write(s, len);
-        s += put;
-        len -= put;
-        if (len > 0U) {
-            cpu_wfi(); /* место освободит прерывание TC от DMA */
-        }
-    }
-}
-
 size_t uart_read(void *data, size_t len)
 {
     return rb_read(&s_rx_rb, data, (uint32_t)len);
+}
+
+bool uart_rx_pending(void)
+{
+    return rb_count(&s_rx_rb) != 0U;
+}
+
+uint32_t uart_last_rx_us(void)
+{
+    return s_last_rx_us;
 }
 
 void uart_flush(void)
@@ -203,6 +239,7 @@ void uart_flush(void)
     /* DMA закончил, но последний байт ещё может быть в сдвиговом регистре. */
     while ((USART2->SR & USART_SR_TC) == 0U) {
     }
+    de_set(false);
 }
 
 void uart_get_stats(uart_stats_t *out)
@@ -237,6 +274,9 @@ void uart_init(uint32_t pclk1_hz, uint32_t baud)
     gpio_set_pull(GPIOA, UART_RX_PIN, GPIO_PULL_UP); /* линия в покое — «1» */
     gpio_set_mode(GPIOA, UART_TX_PIN, GPIO_MODE_AF);
     gpio_set_mode(GPIOA, UART_RX_PIN, GPIO_MODE_AF);
+
+    de_set(false); /* сначала уровень, потом режим: без короткого импульса на выходе */
+    gpio_set_mode(GPIOA, DE_PIN, GPIO_MODE_OUTPUT);
 
     /* При передискретизации 16 значение BRR равно pclk / baud:
      * старшие 12 бит — целая часть делителя, младшие 4 — дробная в 1/16.

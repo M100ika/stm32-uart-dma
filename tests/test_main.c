@@ -9,10 +9,14 @@ int main(void)
     run_ringbuf_tests();
     printf("rx_tracker\n");
     run_rx_tracker_tests();
-    printf("cli\n");
-    run_cli_tests();
-    printf("strutil\n");
-    run_strutil_tests();
+    printf("modbus\n");
+    run_modbus_tests();
+    printf("mb_rtu\n");
+    run_mb_rtu_tests();
+    printf("sensor_calc\n");
+    run_sensor_calc_tests();
+    printf("app\n");
+    run_app_tests();
 
     printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

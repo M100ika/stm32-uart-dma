@@ -74,7 +74,10 @@ typedef struct {
 #define RCC_AHB1ENR_GPIOAEN BIT(0)
 #define RCC_AHB1ENR_GPIOCEN BIT(2)
 #define RCC_AHB1ENR_DMA1EN  BIT(21)
+#define RCC_APB1ENR_TIM2EN   BIT(0)
+#define RCC_APB1ENR_TIM5EN   BIT(3)
 #define RCC_APB1ENR_USART2EN BIT(17)
+#define RCC_APB2ENR_ADC1EN   BIT(8)
 #define RCC_APB2ENR_SYSCFGEN BIT(14)
 
 #define RCC_CSR_RMVF        BIT(24)
@@ -141,10 +144,71 @@ typedef struct {
 #define USART_CR1_RE     BIT(2)
 #define USART_CR1_TE     BIT(3)
 #define USART_CR1_IDLEIE BIT(4)
+#define USART_CR1_TCIE   BIT(6)
 #define USART_CR1_UE     BIT(13)
 #define USART_CR3_EIE    BIT(0)
 #define USART_CR3_DMAR   BIT(6)
 #define USART_CR3_DMAT   BIT(7)
+
+/* ------------------------------------------- таймеры общего назначения */
+typedef struct {
+    __IO uint32_t CR1;         /* 0x00 */
+    __IO uint32_t CR2;         /* 0x04 */
+    __IO uint32_t SMCR;        /* 0x08 */
+    __IO uint32_t DIER;        /* 0x0C */
+    __IO uint32_t SR;          /* 0x10 */
+    __IO uint32_t EGR;         /* 0x14 */
+    __IO uint32_t CCMR1;       /* 0x18 */
+    __IO uint32_t CCMR2;       /* 0x1C */
+    __IO uint32_t CCER;        /* 0x20 */
+    __IO uint32_t CNT;         /* 0x24 */
+    __IO uint32_t PSC;         /* 0x28 */
+    __IO uint32_t ARR;         /* 0x2C */
+    uint32_t      RESERVED0;   /* 0x30 */
+    __IO uint32_t CCR[4];      /* 0x34..0x40 */
+} tim_t;
+#define TIM2 ((tim_t *)0x40000000UL)  /* 32-битный, CH1 выведен на PA5 (AF1) */
+#define TIM5 ((tim_t *)0x40000C00UL)  /* 32-битный */
+
+#define TIM_CR1_CEN        BIT(0)
+#define TIM_CR1_ARPE       BIT(7)
+#define TIM_EGR_UG         BIT(0)
+#define TIM_CCMR1_OC1PE    BIT(3)
+#define TIM_CCMR1_OC1M_PWM1 (6UL << 4)
+#define TIM_CCER_CC1E      BIT(0)
+
+/* ---------------------------------------------------------------- ADC */
+typedef struct {
+    __IO uint32_t SR;          /* 0x00 */
+    __IO uint32_t CR1;         /* 0x04 */
+    __IO uint32_t CR2;         /* 0x08 */
+    __IO uint32_t SMPR1;       /* 0x0C, каналы 10..18 */
+    __IO uint32_t SMPR2;       /* 0x10, каналы 0..9 */
+    __IO uint32_t JOFR[4];     /* 0x14..0x20 */
+    __IO uint32_t HTR;         /* 0x24 */
+    __IO uint32_t LTR;         /* 0x28 */
+    __IO uint32_t SQR1;        /* 0x2C */
+    __IO uint32_t SQR2;        /* 0x30 */
+    __IO uint32_t SQR3;        /* 0x34 */
+    __IO uint32_t JSQR;        /* 0x38 */
+    __IO uint32_t JDR[4];      /* 0x3C..0x48 */
+    __IO uint32_t DR;          /* 0x4C */
+} adc_t;
+#define ADC1 ((adc_t *)0x40012000UL)
+#define ADC_COMMON_CCR (*(__IO uint32_t *)0x40012304UL)
+
+#define ADC_SR_EOC        BIT(1)
+#define ADC_CR2_ADON      BIT(0)
+#define ADC_CR2_SWSTART   BIT(30)
+#define ADC_CCR_ADCPRE_DIV4 (1UL << 16)
+#define ADC_CCR_TSVREFE   BIT(23)
+#define ADC_CH_VREFINT    17U
+#define ADC_CH_TEMP       18U
+
+/* Заводская калибровка (системная память), измерена при VDDA = 3,3 В. */
+#define VREFINT_CAL (*(const volatile uint16_t *)0x1FFF7A2AUL)
+#define TS_CAL1     (*(const volatile uint16_t *)0x1FFF7A2CUL) /* 30 °C  */
+#define TS_CAL2     (*(const volatile uint16_t *)0x1FFF7A2EUL) /* 110 °C */
 
 /* ---------------------------------------------------------------- DMA */
 typedef struct {
@@ -275,6 +339,10 @@ _Static_assert(offsetof(usart_t, CR3) == 0x14, "USART CR3");
 _Static_assert(offsetof(dma_t, S) == 0x10, "DMA S0");
 _Static_assert(sizeof(dma_stream_t) == 0x18, "DMA stream stride");
 _Static_assert(offsetof(syscfg_t, EXTICR) == 0x08, "SYSCFG EXTICR");
+_Static_assert(offsetof(tim_t, CNT) == 0x24, "TIM CNT");
+_Static_assert(offsetof(tim_t, CCR) == 0x34, "TIM CCR1");
+_Static_assert(offsetof(adc_t, SQR3) == 0x34, "ADC SQR3");
+_Static_assert(offsetof(adc_t, DR) == 0x4C, "ADC DR");
 _Static_assert(offsetof(exti_t, PR) == 0x14, "EXTI PR");
 _Static_assert(offsetof(scb_t, SHPR) == 0x18, "SCB SHPR");
 _Static_assert(offsetof(scb_t, CFSR) == 0x28, "SCB CFSR");

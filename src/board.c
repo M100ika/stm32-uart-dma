@@ -3,7 +3,6 @@
 #include "cpu.h"
 #include "systick.h"
 
-#define LED_PIN 5U
 #define BUTTON_PIN 13U
 #define BUTTON_DEBOUNCE_MS 50U
 #define BUTTON_IRQ_PRIO 7U
@@ -25,33 +24,6 @@ void gpio_set_af(gpio_t *port, unsigned pin, unsigned af)
     volatile uint32_t *reg = &port->AFR[pin >> 3];
     const unsigned shift = (pin & 7U) * 4U;
     *reg = (*reg & ~(0xFUL << shift)) | ((uint32_t)af << shift);
-}
-
-/* ------------------------------------------------------------------ LED */
-
-void led_init(void)
-{
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-    (void)RCC->AHB1ENR; /* после включения тактирования нужна пауза в пару тактов */
-    gpio_set_mode(GPIOA, LED_PIN, GPIO_MODE_OUTPUT);
-    led_set(false);
-}
-
-void led_set(bool on)
-{
-    /* BSRR атомарно ставит или сбрасывает бит без чтения ODR,
-     * поэтому безопасен и из прерывания. */
-    GPIOA->BSRR = on ? BIT(LED_PIN) : BIT(LED_PIN + 16U);
-}
-
-bool led_is_on(void)
-{
-    return (GPIOA->ODR & BIT(LED_PIN)) != 0U;
-}
-
-void led_toggle(void)
-{
-    led_set(!led_is_on());
 }
 
 /* --------------------------------------------------------------- кнопка */
@@ -76,6 +48,11 @@ void button_init(void)
 
     nvic_set_priority(IRQ_EXTI15_10, BUTTON_IRQ_PRIO);
     nvic_enable(IRQ_EXTI15_10);
+}
+
+bool button_is_pressed(void)
+{
+    return (GPIOC->IDR & BIT(BUTTON_PIN)) == 0U; /* активный уровень — низкий */
 }
 
 uint32_t button_take_presses(void)

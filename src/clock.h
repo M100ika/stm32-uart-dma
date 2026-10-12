@@ -26,4 +26,8 @@ bool clock_init(void);
 uint32_t clock_hclk_hz(void);
 uint32_t clock_pclk1_hz(void);
 
+/* Частота таймеров на APB1 (TIM2..TIM5). Если делитель APB1 не равен 1,
+ * таймеры тактируются удвоенной частотой шины: 42 МГц * 2 = 84 МГц. */
+uint32_t clock_apb1_timer_hz(void);
+
 #endif /* CLOCK_H */

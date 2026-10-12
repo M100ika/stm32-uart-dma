@@ -38,7 +38,9 @@ extern int g_failures;
 
 void run_ringbuf_tests(void);
 void run_rx_tracker_tests(void);
-void run_cli_tests(void);
-void run_strutil_tests(void);
+void run_modbus_tests(void);
+void run_mb_rtu_tests(void);
+void run_sensor_calc_tests(void);
+void run_app_tests(void);
 
 #endif /* TEST_H */

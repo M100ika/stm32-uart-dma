@@ -3,9 +3,13 @@
 # Обе прошивки:        make all-mcus
 # Тесты на ПК:         make test
 # Тесты с TSan:        make test-tsan
+# Совместимость:       make interop         (симулятор + minimalmodbus)
 # Прошивка платы:      make flash           (нужен st-flash из stlink-tools)
 
 MCU ?= F401RE
+# Адрес Modbus и скорость: make MB_ADDR=5 MB_BAUD=19200
+MB_ADDR ?= 1
+MB_BAUD ?= 115200
 
 ifeq ($(MCU),F401RE)
   LDSCRIPT := ld/stm32f401re.ld
@@ -32,13 +36,13 @@ ARCH := -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard
 CFLAGS := $(ARCH) -std=c11 -O2 -g3 \
           -Wall -Wextra -Werror -Wshadow -Wdouble-promotion -Wundef \
           -ffunction-sections -fdata-sections -fno-common \
-          -DMCU_NAME='"STM32$(MCU)"' -MMD -MP
+          -DMB_SLAVE_ADDR=$(MB_ADDR)U -DMB_BAUD=$(MB_BAUD)UL -MMD -MP
 
 LDFLAGS := $(ARCH) -T$(LDSCRIPT) -Lld -nostartfiles \
            --specs=nano.specs --specs=nosys.specs \
            -Wl,--gc-sections -Wl,-Map=$(TARGET).map -Wl,--print-memory-usage
 
-.PHONY: all all-mcus flash test test-tsan clean
+.PHONY: all all-mcus flash test test-tsan interop clean
 
 all: $(TARGET).elf $(TARGET).bin $(TARGET).hex
 	@$(SIZE) $(TARGET).elf
@@ -69,8 +73,8 @@ flash: $(TARGET).bin
 
 HOST_CC ?= gcc
 TEST_SRCS := tests/test_main.c tests/test_ringbuf.c tests/test_rx_tracker.c \
-             tests/test_cli.c tests/test_strutil.c \
-             src/ringbuf.c src/rx_tracker.c src/cli.c src/strutil.c
+             tests/test_modbus.c tests/test_mb_rtu.c tests/test_sensor_calc.c tests/test_app.c \
+             src/ringbuf.c src/rx_tracker.c src/modbus.c src/mb_rtu.c src/sensor_calc.c src/app.c
 TEST_CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Werror -Isrc -pthread
 
 test: build/host/tests
@@ -87,6 +91,15 @@ test-tsan: build/host/tests-tsan
 build/host/tests-tsan: $(TEST_SRCS) $(wildcard src/*.h) tests/test.h
 	mkdir -p build/host
 	$(HOST_CC) $(TEST_CFLAGS) -fsanitize=thread $(TEST_SRCS) -o $@
+
+SIM_SRCS := tests/sim/slave_sim.c src/modbus.c src/mb_rtu.c src/app.c
+
+build/host/slave_sim: $(SIM_SRCS) $(wildcard src/*.h)
+	mkdir -p build/host
+	$(HOST_CC) -std=c11 -O1 -g -Wall -Wextra -Werror -Isrc $(SIM_SRCS) -o $@
+
+interop: build/host/slave_sim
+	python3 tests/interop_test.py build/host/slave_sim
 
 clean:
 	rm -rf build

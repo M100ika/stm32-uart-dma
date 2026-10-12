@@ -42,3 +42,16 @@ jobs:
           make test-tsan
       - name: cppcheck
         run: cppcheck --enable=warning,performance,portability --std=c11 --error-exitcode=1 -q -Isrc src tests
+
+  interop:
+    name: Modbus interoperability (minimalmodbus)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python packages
+        run: pip install -r tools/requirements.txt
+      - name: Simulator + independent Modbus master
+        run: make interop

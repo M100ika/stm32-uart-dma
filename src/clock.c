@@ -87,3 +87,8 @@ uint32_t clock_pclk1_hz(void)
 {
     return s_pclk1_hz;
 }
+
+uint32_t clock_apb1_timer_hz(void)
+{
+    return (s_pclk1_hz == s_hclk_hz) ? s_pclk1_hz : 2U * s_pclk1_hz;
+}

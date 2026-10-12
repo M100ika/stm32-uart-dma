@@ -19,8 +19,19 @@ typedef struct {
     uint32_t bfar;   /* адрес при BusFault, если BFARVALID */
 } crash_report_t;
 
+typedef enum {
+    RESET_UNKNOWN = 0,
+    RESET_POWER_ON = 1,
+    RESET_PIN = 2,
+    RESET_SOFTWARE = 3,
+    RESET_IWDG = 4,
+    RESET_WWDG = 5,
+    RESET_LOW_POWER = 6,
+    RESET_BROWN_OUT = 7,
+} reset_cause_t;
+
 /* Причина последнего сброса по флагам RCC_CSR; флаги после чтения сбрасываются. */
-const char *diag_reset_cause(void);
+reset_cause_t diag_reset_cause(void);
 
 /* Отчёт о HardFault из прошлого запуска. true — отчёт был (и теперь стёрт). */
 bool diag_take_crash(crash_report_t *out);

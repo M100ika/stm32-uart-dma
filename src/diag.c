@@ -9,20 +9,21 @@
  * программный сброс. После подачи питания там мусор — его отсекает magic. */
 __attribute__((section(".noinit"))) static crash_report_t s_crash;
 
-const char *diag_reset_cause(void)
+reset_cause_t diag_reset_cause(void)
 {
     const uint32_t csr = RCC->CSR;
     RCC->CSR |= RCC_CSR_RMVF; /* сбросить флаги, чтобы следующий запуск видел свежие */
 
-    /* Порядок важен: при включении питания выставляются и POR, и PIN. */
-    if (csr & RCC_CSR_IWDGRSTF) return "independent watchdog";
-    if (csr & RCC_CSR_WWDGRSTF) return "window watchdog";
-    if (csr & RCC_CSR_LPWRRSTF) return "low-power";
-    if (csr & RCC_CSR_SFTRSTF)  return "software";
-    if (csr & RCC_CSR_PORRSTF)  return "power-on";
-    if (csr & RCC_CSR_BORRSTF)  return "brown-out";
-    if (csr & RCC_CSR_PINRSTF)  return "reset pin";
-    return "unknown";
+    /* Порядок важен: любой сброс выставляет и PINRSTF (внутренний сброс идёт
+     * через вывод NRST), а включение питания — ещё и BORRSTF. */
+    if (csr & RCC_CSR_IWDGRSTF) return RESET_IWDG;
+    if (csr & RCC_CSR_WWDGRSTF) return RESET_WWDG;
+    if (csr & RCC_CSR_LPWRRSTF) return RESET_LOW_POWER;
+    if (csr & RCC_CSR_SFTRSTF)  return RESET_SOFTWARE;
+    if (csr & RCC_CSR_PORRSTF)  return RESET_POWER_ON;
+    if (csr & RCC_CSR_BORRSTF)  return RESET_BROWN_OUT;
+    if (csr & RCC_CSR_PINRSTF)  return RESET_PIN;
+    return RESET_UNKNOWN;
 }
 
 bool diag_take_crash(crash_report_t *out)
